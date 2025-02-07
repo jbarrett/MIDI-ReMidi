@@ -1,6 +1,6 @@
 use strict;
 use warnings;
-package MIDI::libremidi;
+package MIDI::ReMidi;
 
 use FFI::C;
 use FFI::Platypus 2.00;
