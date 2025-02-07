@@ -1,6 +1,7 @@
 use strict;
 use warnings;
 package MIDI::ReMidi;
+use base qw/ Exporter /;
 
 use FFI::C;
 use FFI::Platypus 2.00;
@@ -75,7 +76,6 @@ package libremidiApiConfiguration {
         data => 'opaque',
     ]);
 }
-
 
 #$ffi->type( 'opaque' => '_libremidi_cb' );
 #$ffi->type( 'opaque' => '_libremidi_error_cb' );
@@ -193,5 +193,8 @@ my $bindings = {
 for my $fn ( keys %{ $bindings } ) {
     $ffi->attach( $fn => @{ $bindings->{ $fn } } );
 }
+
+our @EXPORT_OK = sort keys %{ $bindings };
+our %EXPORT_TAGS = ( all => \@EXPORT_OK );
 
 1;
