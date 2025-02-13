@@ -164,14 +164,14 @@ package libremidiMidiConfiguration {
     ]);
     sub in_port { shift->port( @_ ) }
     sub out_port { shift->port( @_ ) }
-    sub callback { shift->_callback( _wrap_midi_cb( @_ ) ) }
+    sub callback { shift->_callback( MIDI::ReMidi::_wrap_midi_cb( @_ ) ) }
     *on_midi1_message = \&callback;
     *on_midi1_raw_data = \&callback;
     *on_midi2_message = \&callback;
     *on_midi2_raw_data = \&callback;
-    sub get_timestamp { shift->_get_timestamp( _wrap_ts_cb( @_ ) ) }
-    sub on_error { shift->_on_error( _wrap_err_cb( @_ ) ) }
-    sub on_warning { shift->_on_warning( _wrap_err_cb( @_ ) ) }
+    sub get_timestamp { shift->_get_timestamp( MIDI::ReMidi::_wrap_ts_cb( @_ ) ) }
+    sub on_error { shift->_on_error( MIDI::ReMidi::_wrap_err_cb( @_ ) ) }
+    sub on_warning { shift->_on_warning( MIDI::ReMidi::_wrap_err_cb( @_ ) ) }
     sub port_name {
         my ( $self, $name ) = @_;
         return $ffi->cast( 'opaque', 'string', $self->_port_nam )
@@ -228,10 +228,10 @@ sub _ffi { $ffi }
 
 sub _wrap_cb {
     my ( $key, $callback ) = @_;
-    libremidiCallback->new({
+    {
         context => undef,
-        $key => $callback
-    });
+        $key => $ffi->closure( $callback )
+    };
 }
 
 sub _wrap_midi_cb {
