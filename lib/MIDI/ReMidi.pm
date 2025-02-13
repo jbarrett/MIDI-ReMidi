@@ -155,7 +155,7 @@ package libremidiMidiConfiguration {
         _get_timestamp => 'libremidi_callback_t',
         _on_error => 'libremidi_callback_t',
         _on_warning => 'libremidi_callback_t',
-        port_name => 'opaque',
+        _port_name => 'opaque',
         virtual_port => 'bool',
         ignore_sysex => 'bool',
         ignore_timing => 'bool',
@@ -172,6 +172,12 @@ package libremidiMidiConfiguration {
     sub get_timestamp { shift->_get_timestamp( _wrap_ts_cb( @_ ) ) }
     sub on_error { shift->_on_error( _wrap_err_cb( @_ ) ) }
     sub on_warning { shift->_on_warning( _wrap_err_cb( @_ ) ) }
+    sub port_name {
+        my ( $self, $name ) = @_;
+        return $ffi->cast( 'opaque', 'string', $self->_port_nam )
+            unless defined $name;
+        $self->_port_name( $ffi->cast( 'string', 'opaque', $name ) );
+    }
 }
 
 my $bindings = {
