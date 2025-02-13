@@ -6,6 +6,7 @@ use base qw/ Exporter /;
 use FFI::C;
 use FFI::Platypus 2.00;
 use FFI::CheckLib 0.25 qw/ find_lib_or_exit /;
+use FFI::Platypus::Buffer qw/ buffer_to_scalar /;
 
 our $VERSION = '0.00';
 
@@ -77,35 +78,53 @@ package libremidiApiConfiguration {
     ]);
 }
 
-#$ffi->type( 'opaque' => '_libremidi_cb' );
-#$ffi->type( 'opaque' => '_libremidi_error_cb' );
-$ffi->type( '(opaque,opaque)->void' => '_libremidi_cb' );
+$ffi->type( '(opaque,int64_t,opaque,size_t)->void' => '_libremidi_midi_cb' );
+$ffi->type( '(opaque,opaque)->void' => '_libremidi_observer_cb' );
 $ffi->type( '(opaque,opaque,size_t,opaque)->void' => '_libremidi_error_cb' );
+$ffi->type( '(opaque,int64_t)->void' => '_libremidi_timestamp_cb' );
 
 package libremidiCallback {
     FFI::C->struct([
         context => 'opaque',
         callback => 'opaque'
     ]);
-    # dereferencing / casting subs here?
+    sub err_cb { shift->callback( $ffi->cast( _libremidi_error_cb => 'opaque', @_ ) ) }
+    sub midi_cb { shift->callback( $ffi->cast( _libremidi_midi_cb => 'opaque', @_ ) ) }
+    sub obs_cb { shift->callback( $ffi->cast( _libremidi_observer_cb => 'opaque', @_ ) ) }
+    sub ts_cb { shift->callback( $ffi->cast( _libremidi_timestamp_cb => 'opaque', @_ ) ) }
+}
+
+# Use this if libremidiCallback doesn't work
+package ReMidiCallback {
+    use FFI::Platypus::Record;
+    record_layout_1(
+        'opaque' => 'context',
+        'opaque' => 'callback',
+    );
 }
 
 package libremidiObserverConfiguration {
     FFI::C->struct([
-        on_error => 'libremidi_callback_t',
-        on_warning => 'libremidi_callback_t',
-        input_added => 'libremidi_callback_t',
-        input_removed => 'libremidi_callback_t',
-        output_added => 'libremidi_callback_t',
-        output_removed => 'libremidi_callback_t',
+        _on_error => 'libremidi_callback_t',
+        _on_warning => 'libremidi_callback_t',
+        _input_added => 'libremidi_callback_t',
+        _input_removed => 'libremidi_callback_t',
+        _output_added => 'libremidi_callback_t',
+        _output_removed => 'libremidi_callback_t',
         track_hardware => 'bool',
         track_virtual => 'bool',
         track_any => 'bool',
         notify_in_constructor => 'bool'
     ]);
+    sub on_error { shift->_on_error( _wrap_err_cb( @_ ) ) }
+    sub on_warning { shift->_on_warning( _wrap_err_cb( @_ ) ) }
+    sub input_added { shift->_input_added( _wrap_obs_cb( @_ ) ) }
+    sub input_removed { shift->_input_removed( _wrap_obs_cb( @_ ) ) }
+    sub output_added { shift->_output_added( _wrap_obs_cb( @_ ) ) }
+    sub output_removed { shift->_output_removed( _wrap_obs_cb( @_ ) ) }
 }
 
-FFI::C->enum( _libremidi_callback_type => [
+FFI::C->enum( libremidi_midi_version => [
     [ MIDI1 => 1 << 1 ],
     [ MIDI1_RAW => 1 << 2 ],
     [ MIDI2 => 1 << 3 ],
@@ -130,12 +149,12 @@ package libremidiUnionCallback {
 
 package libremidiMidiConfiguration {
     FFI::C->struct([
-        version => '_libremidi_callback_type',
-        port => 'libremidi_union_port_t',
-        callback => 'libremidi_union_callback_t',
-        get_timestamp => 'libremidi_callback_t',
-        on_error => 'libremidi_callback_t',
-        on_warning => 'libremidi_callback_t',
+        version => 'libremidi_midi_version',
+        port => 'opaque',
+        _callback => 'libremidi_callback_t',
+        _get_timestamp => 'libremidi_callback_t',
+        _on_error => 'libremidi_callback_t',
+        _on_warning => 'libremidi_callback_t',
         port_name => 'opaque',
         virtual_port => 'bool',
         ignore_sysex => 'bool',
@@ -143,6 +162,16 @@ package libremidiMidiConfiguration {
         ignore_sensing => 'bool',
         timestamps => 'libremidi_timestamp_mode'
     ]);
+    sub in_port { shift->port( @_ ) }
+    sub out_port { shift->port( @_ ) }
+    sub callback { shift->_callback( _wrap_midi_cb( @_ ) ) }
+    *on_midi1_message = \&callback;
+    *on_midi1_raw_data = \&callback;
+    *on_midi2_message = \&callback;
+    *on_midi2_raw_data = \&callback;
+    sub get_timestamp { shift->_get_timestamp( _wrap_ts_cb( @_ ) ) }
+    sub on_error { shift->_on_error( _wrap_err_cb( @_ ) ) }
+    sub on_warning { shift->_on_warning( _wrap_err_cb( @_ ) ) }
 }
 
 my $bindings = {
@@ -187,8 +216,57 @@ my $bindings = {
     libremidi_midi_out_schedule_message => [ [ 'opaque', 'int64_t', 'libremidi_midi1_symbol*', 'size_t' ] => 'int' ],
     libremidi_midi_out_schedule_ump => [ [ 'opaque', 'int64_t', 'libremidi_midi2_symbol*', 'size_t' ] => 'int' ],
     libremidi_midi_out_free => [ [ 'opaque' ] => 'int' ],
-
 };
+
+sub _ffi { $ffi }
+
+sub _wrap_cb {
+    my ( $key, $callback ) = @_;
+    libremidiCallback->new({
+        context => undef,
+        $key => $callback
+    });
+}
+
+sub _wrap_midi_cb {
+    my ( $callback ) = @_;
+    my $cb = sub {
+        shift;
+        my ( $ts, $sym, $len ) = @_;
+        my $symbol = buffer_to_scalar( $sym, $len );
+        $callback->( $ts, $symbol );
+    };
+    _wrap_cb( midi_cb => $cb );
+}
+
+sub _wrap_err_cb {
+    my ( $callback, $key ) = @_;
+    my $cb = sub {
+        shift;
+        my ( $err, $len, $loc ) = @_;
+        my $error = buffer_to_scalar( $err, $len );
+        $callback->( $error, $loc );
+    };
+    _wrap_cb( err_cb => $cb );
+}
+
+sub _wrap_obs_cb {
+    my ( $callback, $key ) = @_;
+    my $cb = sub {
+        shift;
+        $callback->( @_ );
+    };
+    _wrap_cb( obs_cb => $cb );
+}
+
+sub _wrap_ts_cb {
+    my ( $callback, $key ) = @_;
+    my $cb = sub {
+        shift;
+        $callback->( @_ );
+    };
+    _wrap_cb( ts_cb => $cb );
+}
 
 for my $fn ( keys %{ $bindings } ) {
     $ffi->attach( $fn => @{ $bindings->{ $fn } } );
