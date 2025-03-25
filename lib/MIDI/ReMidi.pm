@@ -228,9 +228,11 @@ sub _ffi { $ffi }
 
 sub _wrap_cb {
     my ( $key, $callback ) = @_;
+    my $closure = $ffi->closure( $callback );
+    $closure->sticky;
     {
         context => undef,
-        $key => $ffi->closure( $callback )
+        $key => $closure
     };
 }
 
